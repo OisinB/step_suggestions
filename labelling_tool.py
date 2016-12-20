@@ -32,7 +32,7 @@ def onFrameConfigure(canvas):
 def write_label(is_recipe):
     global fldr
     global folders
-    with open(fldr + 'label.txt', 'w') as f:
+    with open(fldr + '/label.txt', 'w') as f:
         if is_recipe:
             print "Labelling recipe"
             f.write('recipe\n')
