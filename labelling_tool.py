@@ -3,16 +3,20 @@ from PIL import ImageTk, Image
 from math import floor
 import os
 from rules import convert_ckpd_to_datetime
-import pandas as pd, datetime as dt
+import pandas as pd
 import argparse
+from math import ceil
 
 root = tk.Tk()
 root.withdraw()
 
 current_window = None
-current_canvas = None
 
-def  replace_window(root):
+db = pd.read_csv('/Users/oisin-brogan/Downloads/moderated_photos/db.csv')
+db.taken_at = db.taken_at.map(convert_ckpd_to_datetime)
+db = db.set_index('image_id')
+
+def replace_window(root):
     """Destroy current window, create new window"""
     global current_window
     if current_window is not None:
@@ -49,10 +53,34 @@ def write_label(is_recipe):
         return
     window_of_images()
 
+def keyboard_write_label(event):
+    global fldr
+    global folders
+    key_press = str(event.char)
+    with open(fldr + '/label.txt', 'w') as f:
+        if key_press=='a':
+            print "Labelling recipe"
+            f.write('recipe\n')
+        elif key_press=='s':
+            print "Labelling as non-recipe"
+            f.write('not_recipe\n')
+        else:
+            #Pressed some other key
+            print "You pressed " + key_press
+            return
+            #Don't update
+    #Update to next folder
+    try:
+        index = folders.index(fldr)
+        fldr = folders[index+1]
+    except IndexError:
+        #We've reached the end of the folders list
+        root.destroy()
+        return
+    window_of_images()    
+    
 def look_up_chronological(images):
-    db = pd.read_csv('/Users/oisin-brogan/Downloads/moderated_photos/db.csv')
-    db.taken_at = db.taken_at.map(convert_ckpd_to_datetime)
-    db = db.set_index('image_id')
+    global db
     
     ordered = []
     for i in images:
@@ -68,7 +96,12 @@ def window_of_images():
     images = [f for f in os.listdir(fldr) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     images = [i[0] for i in look_up_chronological(images)]
               
+    user = fldr.split('/')[-2]
+    sug = fldr.split('/')[-1]
     window = replace_window(root)
+    window.title("Manual Recipe Review - User {} Suggestion {}".format(user, sug))
+    window.geometry("{0}x{1}+0+0".format((320*4)+10, int(ceil(len(images)/4)+1)*320))
+    window.configure(background='grey') 
     canvas = tk.Canvas(window, borderwidth=0, background="#ffffff")
     frame = tk.Frame(canvas, background="#ffffff")
     vsb = tk.Scrollbar(window, orient="vertical", command=canvas.yview)
@@ -79,10 +112,7 @@ def window_of_images():
     canvas.create_window((4,4), window=frame, anchor="nw")
     
     frame.bind("<Configure>", lambda event, canvas=canvas: onFrameConfigure(canvas))
-
-    window.title("Manual Recipe Review")
-    window.geometry("{0}x{1}".format((320*4)+10, (len(images)*320/4)+1))
-    window.configure(background='grey') 
+    frame.bind()
     
     resized = []
     
@@ -118,6 +148,10 @@ def window_of_images():
     yes_button.grid(row=(len(images)/4)+1, column=0)
     no_button.grid(row=(len(images)/4)+2, column=0)
     
+    frame.bind("<Key>", keyboard_write_label)
+    frame.focus_set()
+    #frame.bind("<Button-1>", callback)
+    
     #Start the GUI
     window.mainloop()
 
@@ -151,20 +185,34 @@ parser.add_argument(
     help='Parse a single user or all available suggestions'
 )
 
+parser.add_argument(
+    '--overwrite',
+    type=str,
+    default='y',
+    help='Overwrite exisiting labels, or only show folders without a label'
+)
+
 FLAGS, unparsed = parser.parse_known_args()
+overwrite = FLAGS.overwrite == 'y'
 
 if FLAGS.user_or_all == 'user':
     user_folder = '/Users/oisin-brogan/Downloads/moderated_photos/suggestions/' + FLAGS.user_id
     folders = [os.path.join(user_folder,f) for f in os.listdir(user_folder)
             if os.path.isdir(os.path.join(user_folder,f))]
+    if not overwrite:
+        folders = [f for f in folders if not os.path.exists(os.path.join(f, 'label.txt'))]
+
 else:
     #Parse all suggestions
     folders = []
     for top,dirs,files in os.walk(FLAGS.suggestion_folder):
         #If we're at the bottom
         if not dirs:
-            folders.append(top)
-            
-fldr = folders[0]
-print folders
-window = window_of_images()
+            if overwrite or 'label.txt' not in files:
+                folders.append(top)
+if folders:            
+    fldr = folders[0]
+    #print folders
+    window = window_of_images()
+else:
+    print "Empty folder list - are you trying to overwrite?"
