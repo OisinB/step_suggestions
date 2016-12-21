@@ -22,7 +22,7 @@ exif_tag = 'datetime'
 hashs = ['puzzle', 'phash', 'whash']
 
 rule_to_apply = 'three_similar_concurrent'
-rule_args = (40, pd.Timedelta(days = 1), 'whash')
+rule_args = ('user', 40, pd.Timedelta(days = 1), 'whash')
 
 ####Prepare data####
 #Load in step photos data
@@ -128,10 +128,41 @@ def store_suggestions(user_id, lst):
     for i, ls in enumerate(lst):
         cpy_all_photos_in_list(ls, user_id, i)
     
-for user_id, lst in zip(suggestions[:10].index, suggestions[:10].values):
+for user_id, lst in zip(suggestions.index, suggestions.values):
     store_suggestions(user_id, lst)
 
 #Create timeline of suggestions
+def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
+    df = cm_db.copy()
+    df = df.set_index('image_id')
+    
+    all_timelines = []
+    
+    users_with_suggestions = [os.path.join(all_suggestion_folder,f) for f in 
+                    os.listdir(all_suggestion_folder) if 
+                    os.path.isdir(os.path.join(all_suggestion_folder,f))]
+    for user_fldr in users_with_suggestions:            
+        user_suggestions = [os.path.join(user_fldr,f) for 
+                        f in os.listdir(user_fldr)
+                        if os.path.isdir(os.path.join(user_fldr  ,f))]
+        timeline = []
+        for suggestion_fldr in user_suggestions:
+            images = [f[:-4] for f in os.listdir(suggestion_fldr) if f.endswith('.jpg')]
+            #Take the time of the last photo as the suggestion time for
+            times = df.loc[images].taken_at
+            suggestion_time = max(times)
+            timeline.append(suggestion_time)
+        #Convert to pandas Series
+        timeline = pd.Series([1]*len(timeline), index = timeline, name=user_fldr.split('/')[-1])
+        timeline = timeline.resample(granularity).sum()
+        all_timelines.append(timeline)
+        
+    all_timelines = pd.concat(all_timelines, axis = 1)
+    return all_timelines
+    
+timeline = suggestions_timeline(c_m_photos_path + 'suggestions/', c_m_photos_db)
+    
+        
 
 #Compute metrics on step photos (% covered)
 
