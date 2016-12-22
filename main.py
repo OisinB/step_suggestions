@@ -16,13 +16,14 @@ import rules
 ###Parameters#### Final version will parse from terminal
 step_photos_path = '/Users/oisin-brogan/Downloads/step_photos2/'
 c_m_photos_path = '/Users/oisin-brogan/Downloads/moderated_photos/'
+suggestions_fldr_name = 'suggestions_1/'
 
 exif_tag = 'datetime'
 
 hashs = ['puzzle', 'phash', 'whash']
 
 rule_to_apply = 'three_similar_concurrent'
-rule_args = ('user', 40, pd.Timedelta(days = 1), 'whash')
+rule_args = ('user', 20, pd.Timedelta(hours = 12), 'whash')
 
 ####Prepare data####
 #Load in step photos data
@@ -112,25 +113,24 @@ suggestions = c_m_by_user.apply(rule, *rule_args)
 
 ####Performance metrics####
 #Store suggestions
-if not os.path.exists(c_m_photos_path + 'suggestions/'):
-    os.mkdir(c_m_photos_path + 'suggestions/')
+if not os.path.exists(c_m_photos_path + suggestions_fldr_name):
+    os.mkdir(c_m_photos_path + suggestions_fldr_name)
 
 def cpy_all_photos_in_list(list_of_photos, user_id, counter):
-    dst_path = c_m_photos_path + 'suggestions/{}/{}/'.format(user_id, counter)
+    dst_path = c_m_photos_path + suggestions_fldr_name + '{}/{}/'.format(user_id, counter)
     
     if not os.path.exists(dst_path):
         os.makedirs(dst_path)
     
-    for image in list_of_photos:
-        shutil.copy(c_m_photos_path + image + '.jpg', dst_path + image + '.jpg')
+    #Create text file with the image ids
+    with open(dst_path+'image_list.txt', 'w') as f:
+        for image in list_of_photos:
+            f.write(image + '.jpg\n')
 
-def store_suggestions(user_id, lst):
+#Store the suggestions in seperate folders
+for user_id, lst in zip(suggestions.index, suggestions.values):
     for i, ls in enumerate(lst):
         cpy_all_photos_in_list(ls, user_id, i)
-    
-for user_id, lst in zip(suggestions.index, suggestions.values):
-    store_suggestions(user_id, lst)
-
 #Create timeline of suggestions
 def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
     df = cm_db.copy()
@@ -147,7 +147,13 @@ def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
                         if os.path.isdir(os.path.join(user_fldr  ,f))]
         timeline = []
         for suggestion_fldr in user_suggestions:
-            images = [f[:-4] for f in os.listdir(suggestion_fldr) if f.endswith('.jpg')]
+            #Read txt file of image id
+            if os.path.exists(suggestion_fldr + '/image_list.txt'):
+                with open(suggestion_fldr + '/image_list.txt', 'r') as f:
+                    images = [i[:-5] for i in f.readlines()]
+            else:
+                print "Missing image list file in {}".format(suggestion_fldr)
+                continue
             #Take the time of the last photo as the suggestion time for
             times = df.loc[images].taken_at
             suggestion_time = max(times)
@@ -160,10 +166,20 @@ def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
     all_timelines = pd.concat(all_timelines, axis = 1)
     return all_timelines
     
-timeline = suggestions_timeline(c_m_photos_path + 'suggestions/', c_m_photos_db)
-    
-        
+timeline = suggestions_timeline(c_m_photos_path + suggestions_fldr_name, c_m_photos_db)   
 
 #Compute metrics on step photos (% covered)
 
 #Present c+m suggestions for manual review? (Feasible?)
+
+def calc_accuracy(all_suggestion_folder):
+    correct_labels = []
+    for root, dirs, files in os.walk(all_suggestion_folder):
+        if not dirs: #We're at the bottom folder
+            with open(root + '/label.txt') as f:
+                label = f.read()
+                correct_labels.append(label == 'recipe\n')
+    return correct_labels
+    
+results = calc_accuracy(c_m_photos_path + suggestions_fldr_name)
+accuracy = sum(results)/float(len(results))

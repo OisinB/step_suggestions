@@ -90,10 +90,15 @@ def look_up_chronological(images):
     
     return ordered
             
-#fldr = "/Users/oisin-brogan/Downloads/moderated_photos/suggestions/2458250/2/"
 def window_of_images():
     global fldr
-    images = [f for f in os.listdir(fldr) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+#    images = [f for f in os.listdir(fldr) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    if os.path.exists(fldr + 'image_list.txt'):
+        with open(fldr + 'image_list.txt', 'r') as f:
+            images = [i[:-1] for i in f.readlines()]
+    else:
+        print "Missing image list file in {}".format(fldr)
+        return
     images = [i[0] for i in look_up_chronological(images)]
               
     user = fldr.split('/')[-2]
@@ -118,7 +123,7 @@ def window_of_images():
     
     for c, f in enumerate(images):
         #Creates a Tkinter-compatible photo image, which can be used everywhere Tkinter expects an image object.
-        img = Image.open(fldr + '/' + f)
+        img = Image.open(FLAGS.photo_bank + '/' + f)
         
         width, height = img.size
         size = 300
@@ -167,15 +172,22 @@ parser.add_argument(
 parser.add_argument(
     '--user_path',
     type=str,
-    default='/Users/oisin-brogan/Downloads/moderated_photos/suggestions/2458250/',
+    default='/Users/oisin-brogan/Downloads/moderated_photos/suggestions_0/2458250/',
     help='Id for single user to label'
 )
 
 parser.add_argument(
     '--suggestion_folder',
     type=str,
-    default='/Users/oisin-brogan/Downloads/moderated_photos/suggestions/',
+    default='/Users/oisin-brogan/Downloads/moderated_photos/suggestions_0/',
     help='Path to top level suggestion folder'
+)
+
+parser.add_argument(
+    '--photo_bank',
+    type=str,
+    default='/Users/oisin-brogan/Downloads/moderated_photos/',
+    help='Path to top level with all photos'
 )
 
 parser.add_argument(
@@ -196,7 +208,7 @@ FLAGS, unparsed = parser.parse_known_args()
 overwrite = FLAGS.overwrite == 'y'
 
 if FLAGS.user_or_all == 'user':
-    user_folder = '/Users/oisin-brogan/Downloads/moderated_photos/suggestions/' + FLAGS.user_id
+    user_folder = '/Users/oisin-brogan/Downloads/moderated_photos/suggestions_0/' + FLAGS.user_id
     folders = [os.path.join(user_folder,f) for f in os.listdir(user_folder)
             if os.path.isdir(os.path.join(user_folder,f))]
     if not overwrite:
