@@ -93,8 +93,8 @@ def look_up_chronological(images):
 def window_of_images():
     global fldr
 #    images = [f for f in os.listdir(fldr) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-    if os.path.exists(fldr + 'image_list.txt'):
-        with open(fldr + 'image_list.txt', 'r') as f:
+    if os.path.exists(fldr + '/image_list.txt'):
+        with open(fldr + '/image_list.txt', 'r') as f:
             images = [i[:-1] for i in f.readlines()]
     else:
         print "Missing image list file in {}".format(fldr)
@@ -172,8 +172,8 @@ parser.add_argument(
 parser.add_argument(
     '--user_path',
     type=str,
-    default='/Users/oisin-brogan/Downloads/moderated_photos/suggestions_0/2458250/',
-    help='Id for single user to label'
+    default='',
+    help='Folder of a single users suggestions to label'
 )
 
 parser.add_argument(
@@ -208,7 +208,10 @@ FLAGS, unparsed = parser.parse_known_args()
 overwrite = FLAGS.overwrite == 'y'
 
 if FLAGS.user_or_all == 'user':
-    user_folder = '/Users/oisin-brogan/Downloads/moderated_photos/suggestions_0/' + FLAGS.user_id
+    if FLAGS.user_path:
+        user_folder = FLAGS.user_path
+    else:
+        user_folder = '/Users/oisin-brogan/Downloads/moderated_photos/suggestions_0/' + FLAGS.user_id
     folders = [os.path.join(user_folder,f) for f in os.listdir(user_folder)
             if os.path.isdir(os.path.join(user_folder,f))]
     if not overwrite:
