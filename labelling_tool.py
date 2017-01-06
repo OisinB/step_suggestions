@@ -79,27 +79,47 @@ def keyboard_write_label(event):
         return
     window_of_images()    
     
-def look_up_chronological(images):
+def look_up_chronological(image_paths):
     global db
     
     ordered = []
-    for i in images:
-        time = db.loc[i[:-4]].taken_at
+    for i in image_paths:
+        img_id = i.split('/')[-1][:-4]
+        time = db.loc[img_id].taken_at
         ordered.append((i, time))
     ordered = sorted(ordered, key = lambda x: x[1])
     
     return ordered
-            
-def window_of_images():
-    global fldr
-#    images = [f for f in os.listdir(fldr) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    
+def load_images_from_txt_file(fldr):
+    images = []
     if os.path.exists(fldr + '/image_list.txt'):
         with open(fldr + '/image_list.txt', 'r') as f:
             images = [i[:-1] for i in f.readlines()]
     else:
         print "Missing image list file in {}".format(fldr)
-        return
-    images = [i[0] for i in look_up_chronological(images)]
+    
+    image_paths = [FLAGS.photo_bank + '/' + fi for fi in images]
+        
+    return images, image_paths
+    
+def load_images_in_folder(fldr):
+    image_paths = [os.path.join(fldr, fi) for fi in os.listdir(fldr) if fi.endswith('.jpg')]
+    images = [i.split('/')[-1] for i in image_paths]
+              
+    return images, image_paths
+    
+                    
+def window_of_images():
+    global fldr
+#    if os.path.exists(fldr + '/image_list.txt'):
+#        with open(fldr + '/image_list.txt', 'r') as f:
+#            images = [i[:-1] for i in f.readlines()]
+#    else:
+#        print "Missing image list file in {}".format(fldr)
+#        return
+    images, image_paths = load_method(fldr)
+    image_paths = [i[0] for i in look_up_chronological(image_paths)]
               
     user = fldr.split('/')[-2]
     sug = fldr.split('/')[-1]
@@ -121,9 +141,9 @@ def window_of_images():
     
     resized = []
     
-    for c, f in enumerate(images):
+    for c, fi in enumerate(image_paths):
         #Creates a Tkinter-compatible photo image, which can be used everywhere Tkinter expects an image object.
-        img = Image.open(FLAGS.photo_bank + '/' + f)
+        img = Image.open(fi)
         
         width, height = img.size
         size = 300
@@ -155,7 +175,6 @@ def window_of_images():
     
     frame.bind("<Key>", keyboard_write_label)
     frame.focus_set()
-    #frame.bind("<Button-1>", callback)
     
     #Start the GUI
     window.mainloop()
@@ -187,7 +206,14 @@ parser.add_argument(
     '--photo_bank',
     type=str,
     default='/Users/oisin-brogan/Downloads/moderated_photos/',
-    help='Path to top level with all photos'
+    help='Path to top level with all photos to load from a txt file of image ids'
+)
+
+parser.add_argument(
+    '--load_method',
+    type=str,
+    default='txt',
+    help='Should the image loader expect a text file of image ids, or a folder of images'
 )
 
 parser.add_argument(
@@ -206,6 +232,10 @@ parser.add_argument(
 
 FLAGS, unparsed = parser.parse_known_args()
 overwrite = FLAGS.overwrite == 'y'
+if FLAGS.load_method == 'txt':
+    load_method = load_images_from_txt_file
+else:
+    load_method = load_images_in_folder
 
 if FLAGS.user_or_all == 'user':
     if FLAGS.user_path:
@@ -216,7 +246,6 @@ if FLAGS.user_or_all == 'user':
             if os.path.isdir(os.path.join(user_folder,f))]
     if not overwrite:
         folders = [f for f in folders if not os.path.exists(os.path.join(f, 'label.txt'))]
-
 else:
     #Parse all suggestions
     folders = []
