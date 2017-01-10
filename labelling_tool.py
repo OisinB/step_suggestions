@@ -57,18 +57,20 @@ def keyboard_write_label(event):
     global fldr
     global folders
     key_press = str(event.char)
-    with open(fldr + '/label.txt', 'w') as f:
-        if key_press=='a':
-            print "Labelling recipe"
-            f.write('recipe\n')
-        elif key_press=='s':
-            print "Labelling as non-recipe"
-            f.write('not_recipe\n')
-        else:
-            #Pressed some other key
-            print "You pressed " + key_press
-            return
-            #Don't update
+    if key_press in ('a', 's'):
+    #Don't open/modify the label.txt unless you press a relevant key
+        with open(fldr + '/label.txt', 'w') as f:
+            if key_press=='a':
+                print "Labelling recipe"
+                f.write('recipe\n')
+            elif key_press=='s':
+                print "Labelling as non-recipe"
+                f.write('not_recipe\n')
+    else:
+        #Pressed some other key
+        print "You pressed " + key_press
+        return
+        #Don't update folder
     #Update to next folder
     try:
         index = folders.index(fldr)
