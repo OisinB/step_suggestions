@@ -19,14 +19,34 @@ import pypuzzle
 #EXIF datetime
 def convert_exif_to_datetime(exif_time_string):
     try:
-        return dt.datetime.strptime(exif_time_string, "%Y:%m:%d %H:%M:%S")
+        time_taken = dt.datetime.strptime(exif_time_string, "%Y:%m:%d %H:%M:%S")
+        if time_taken > dt.datetime.today(): #Can't be from the future
+            #Guess it's from this year
+            this_year = dt.datetime.today().year
+            time_taken = dt.datetime.strptime(str(this_year) + exif_time_string[4:],
+                                              "%Y:%m:%d %H:%M:%S")
+            if time_taken > dt.datetime.today(): #Can't be from the future
+                #Settle on last year
+                time_taken = dt.datetime.strptime(str(this_year-1) + exif_time_string[4:],
+                                              "%Y:%m:%d %H:%M:%S")
+        return time_taken
     except ValueError:
         print 'Failed on {}'.format(exif_time_string)
         return pd.np.NAN    
     
 def convert_ckpd_to_datetime(time_string):
     try:
-        return dt.datetime.strptime(time_string, "%Y-%m-%dT%H:%M:%S")
+        time_taken = dt.datetime.strptime(time_string, "%Y-%m-%dT%H:%M:%S")
+        if time_taken > dt.datetime.today(): #Can't be from the future
+            #Guess it's from this year
+            this_year = dt.datetime.today().year
+            time_taken = dt.datetime.strptime(str(this_year) + time_string[4:],
+                                              "%Y-%m-%dT%H:%M:%S")
+            if time_taken > dt.datetime.today(): #Can't be from the future
+                #Settle on last year
+                time_taken = dt.datetime.strptime(str(this_year-1) + time_string[4:],
+                                              "%Y-%m-%dT%H:%M:%S")
+        return time_taken
     except ValueError:
         print 'Failed on {}'.format(time_string)
         return pd.np.NAN    
@@ -106,10 +126,10 @@ def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_
                 break
                 #there's nothing for us here
             max_hdiff = relevent_hdiffs.max().max() 
-        if relevent_hdiffs.shape[0] > 3:
-            possibility = set(relevent_hdiffs.columns)
+        if relevent_hdiffs.shape[0] >= 3:
+            possibility = relevent_hdiffs.columns.tolist()
             #Check if this possibility is a subset of any previous suggestion
-            if sum([possibility <= s for s in suggestions]) == 0:
+            if sum([set(possibility) <= set(s) for s in suggestions]) == 0:
                 suggestions.append(possibility)
     
     return suggestions

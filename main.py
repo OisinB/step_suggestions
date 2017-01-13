@@ -16,14 +16,14 @@ import rules
 ###Parameters#### Final version will parse from terminal
 step_photos_path = '/Users/oisin-brogan/Downloads/step_photos2/'
 c_m_photos_path = '/Users/oisin-brogan/Downloads/moderated_photos/'
-suggestions_fldr_name = 'suggestions_1/'
+suggestions_fldr_name = 'suggestions_3/'
 
 exif_tag = 'datetime'
 
 hashs = ['puzzle', 'phash', 'whash']
 
 rule_to_apply = 'three_similar_concurrent'
-rule_args = ('user', 20, pd.Timedelta(hours = 12), 'whash')
+rule_args = ('user', 40, pd.Timedelta(hours = 2.5), 'whash')
 
 ####Prepare data####
 #Load in step photos data
@@ -116,7 +116,7 @@ suggestions = c_m_by_user.apply(rule, *rule_args)
 if not os.path.exists(c_m_photos_path + suggestions_fldr_name):
     os.mkdir(c_m_photos_path + suggestions_fldr_name)
 
-def cpy_all_photos_in_list(list_of_photos, user_id, counter):
+def create_photo_list(list_of_photos, user_id, counter):
     dst_path = c_m_photos_path + suggestions_fldr_name + '{}/{}/'.format(user_id, counter)
     
     if not os.path.exists(dst_path):
@@ -130,7 +130,8 @@ def cpy_all_photos_in_list(list_of_photos, user_id, counter):
 #Store the suggestions in seperate folders
 for user_id, lst in zip(suggestions.index, suggestions.values):
     for i, ls in enumerate(lst):
-        cpy_all_photos_in_list(ls, user_id, i)
+        create_photo_list(ls, user_id, i)
+        
 #Create timeline of suggestions
 def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
     df = cm_db.copy()
@@ -157,6 +158,8 @@ def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
             #Take the time of the last photo as the suggestion time for
             times = df.loc[images].taken_at
             suggestion_time = max(times)
+#            if suggestion_time > dt.datetime(2500,1,1):
+#                
             timeline.append(suggestion_time)
         #Convert to pandas Series
         timeline = pd.Series([1]*len(timeline), index = timeline, name=user_fldr.split('/')[-1])
@@ -168,18 +171,83 @@ def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
     
 timeline = suggestions_timeline(c_m_photos_path + suggestions_fldr_name, c_m_photos_db)   
 
-#Compute metrics on step photos (% covered)
-
-#Present c+m suggestions for manual review? (Feasible?)
-
-def calc_accuracy(all_suggestion_folder):
-    correct_labels = []
-    for root, dirs, files in os.walk(all_suggestion_folder):
-        if not dirs: #We're at the bottom folder
-            with open(root + '/label.txt') as f:
-                label = f.read()
-                correct_labels.append(label == 'recipe\n')
-    return correct_labels
+####Time to calc precsion and recall####
+#Get all manually labelled recipes in c and m photos
+def parse_label(fldr_path):
+    with open(fldr_path + 'label.txt', 'r') as f:
+        recipe = f.readline()
+        if recipe == 'recipe\n':
+            lines = f.readlines()
+        else:
+            lines = []
     
-results = calc_accuracy(c_m_photos_path + suggestions_fldr_name)
-accuracy = sum(results)/float(len(results))
+    lines = [l.strip() for l in lines]
+    indexs = [i for i,v in enumerate(lines) if v.startswith('.')]
+    indexs.append(len(lines))
+    list_of_recipes = [lines[indexs[i]+1:indexs[i+1]] for i in range(len(indexs)-1)]
+                       
+    return list_of_recipes
+    
+all_recipes = {}
+
+for user_id in cm_users:
+    usr_fldr = c_m_photos_path + 'by_user/' + str(user_id) + '/'
+    recipes = parse_label(usr_fldr)
+    all_recipes[usr_fldr.split('/')[-2]] = recipes
+
+total_recipes = sum([len(v) for v in all_recipes.values()])
+                
+#How do we decide we made a 'correct' suggestion?
+#correct conditions
+# - all photos are subset of 1 recipe
+# - X photos not in the recipe (X probably has to equal 1) (keep track of this)
+# - Must be a certain % of recipe? (% ~= 75) <- interesting to see how this changes rating
+
+def is_suggestion_recipe(suggestion, user_recipes, max_extra = 1, min_percentage = .75):
+    """suggestion is a list of image ids making a suggestion by the logic
+    user_recipes is a list of lists of image ids, detailing all the recipes
+    identitified in the user's photos"""    
+    for recipe in user_recipes:
+        no_extra_photos = False
+        suff_cover = False
+    
+        matches = sum([i in recipe for i in suggestion])
+        extra_photos = len(suggestion) - matches
+        percentage = float(matches) / len(recipe)
+        if extra_photos <= max_extra:
+            no_extra_photos = True
+        if percentage > min_percentage:
+            suff_cover = True
+        if no_extra_photos and suff_cover:
+            #We matched to a labelled recipe - no need to check the others
+            break
+    
+    return [no_extra_photos, suff_cover]
+
+def eval_users_suggestions(suggestions, user_id, all_user_recipes):
+    user_recipes = all_user_recipes[user_id]
+    if not user_recipes:
+        #No recipes => all suggestions are false
+        results = [[False, False]]*len(suggestions)
+        return results
+    results = []
+    for suggestion in suggestions:
+        results.append(is_suggestion_recipe(suggestion, user_recipes))
+        
+    return results
+
+#Finally - eval all our suggestions to see if they were correct
+   
+results = pd.Series(index = suggestions.index)
+#Have to do this to get around apply treating lists as special cases
+for u_id in results.index:
+    results.loc[u_id] = eval_users_suggestions(suggestions[u_id], str(u_id), all_recipes)
+recipe_finds = results.map(lambda x: [li[0] and li[1] for li in x])
+extra_photos = results.map(lambda x: [li[0] for li in x])
+suff_cover = results.map(lambda x: [li[1] for li in x])
+
+#Calc some metrics
+total_suggestions = recipe_finds.apply(lambda x: len(x) if x else pd.np.NAN).sum()
+total_recipe_finds = recipe_finds.apply(lambda x: sum(x) if x else pd.np.NAN).sum()
+precision = total_recipe_finds/float(total_suggestions)
+recall = total_recipe_finds/float(total_recipes)

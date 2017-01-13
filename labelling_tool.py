@@ -66,6 +66,8 @@ def keyboard_write_label(event):
             elif key_press=='s':
                 print "Labelling as non-recipe"
                 f.write('not_recipe\n')
+    elif key_press == ' ':
+        pass #Space moves to next folder without updating label.txt
     else:
         #Pressed some other key
         print "You pressed " + key_press
@@ -114,20 +116,16 @@ def load_images_in_folder(fldr):
                     
 def window_of_images():
     global fldr
-#    if os.path.exists(fldr + '/image_list.txt'):
-#        with open(fldr + '/image_list.txt', 'r') as f:
-#            images = [i[:-1] for i in f.readlines()]
-#    else:
-#        print "Missing image list file in {}".format(fldr)
-#        return
     images, image_paths = load_method(fldr)
-    image_paths = [i[0] for i in look_up_chronological(image_paths)]
+    images_with_times = look_up_chronological(image_paths)
+    image_paths = [i[0] for i in images_with_times]
+    times = [i[1].strftime("%Y-%m-%d %H:%M:%S") for i in images_with_times]
               
     user = fldr.split('/')[-2]
     sug = fldr.split('/')[-1]
     window = replace_window(root)
     window.title("Manual Recipe Review - User {} Suggestion {}".format(user, sug))
-    window.geometry("{0}x{1}+0+0".format((320*4)+10, int(ceil(len(images)/4)+1)*320))
+    window.geometry("{0}x{1}+0+0".format((320*4)+10, (((((len(images)-1)/4)+1)*320)+100)))
     window.configure(background='grey') 
     canvas = tk.Canvas(window, borderwidth=0, background="#ffffff")
     frame = tk.Frame(canvas, background="#ffffff")
@@ -164,7 +162,7 @@ def window_of_images():
         resized.append(imgTK)
     
         #The Label widget is a standard Tkinter widget used to display a text or image on the screen.
-        panel = tk.Label(frame, image = resized[c])
+        panel = tk.Label(frame, image = resized[c], text = times[c], compound = tk.TOP)
         
         #The grid geometry manager packs widgets in rows or columns.
         panel.grid(row=c/4, column=c%4, padx = 10, pady = 10)
@@ -243,7 +241,7 @@ if FLAGS.user_or_all == 'user':
     if FLAGS.user_path:
         user_folder = FLAGS.user_path
     else:
-        user_folder = '/Users/oisin-brogan/Downloads/moderated_photos/suggestions_0/' + FLAGS.user_id
+        user_folder = '/Users/oisin-brogan/Downloads/moderated_photos/suggestions_2/' + FLAGS.user_id
     folders = [os.path.join(user_folder,f) for f in os.listdir(user_folder)
             if os.path.isdir(os.path.join(user_folder,f))]
     if not overwrite:
