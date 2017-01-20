@@ -16,14 +16,14 @@ import rules
 ###Parameters#### Final version will parse from terminal
 step_photos_path = '/Users/oisin-brogan/Downloads/step_photos2/'
 c_m_photos_path = '/Users/oisin-brogan/Downloads/moderated_photos/'
-suggestions_fldr_name = 'suggestions_3/'
+suggestions_fldr_name = 'suggestions_9/'
 
 exif_tag = 'datetime'
 
 hashs = ['puzzle', 'phash', 'whash']
 
-rule_to_apply = 'three_similar_concurrent'
-rule_args = ('user', 40, pd.Timedelta(hours = 2.5), 'whash')
+rule_to_apply = 'three_s_c_with_min_time_diff'
+rule_args = ('user', 20, pd.Timedelta(hours = 2.5), 7/6., 'whash')
 
 ####Prepare data####
 #Load in step photos data
@@ -206,7 +206,11 @@ total_recipes = sum([len(v) for v in all_recipes.values()])
 def is_suggestion_recipe(suggestion, user_recipes, max_extra = 1, min_percentage = .75):
     """suggestion is a list of image ids making a suggestion by the logic
     user_recipes is a list of lists of image ids, detailing all the recipes
-    identitified in the user's photos"""    
+    identitified in the user's photos"""
+    #Bools to show if we ever meet the condidtions individually, but not in 
+    #the same recipe
+    best_extra_photos = False
+    best_suff_cover = False
     for recipe in user_recipes:
         no_extra_photos = False
         suff_cover = False
@@ -216,13 +220,15 @@ def is_suggestion_recipe(suggestion, user_recipes, max_extra = 1, min_percentage
         percentage = float(matches) / len(recipe)
         if extra_photos <= max_extra:
             no_extra_photos = True
+            best_extra_photos = True
         if percentage > min_percentage:
             suff_cover = True
+            best_suff_cover = True
         if no_extra_photos and suff_cover:
             #We matched to a labelled recipe - no need to check the others
             break
     
-    return [no_extra_photos, suff_cover]
+    return [best_extra_photos, best_suff_cover]
 
 def eval_users_suggestions(suggestions, user_id, all_user_recipes):
     user_recipes = all_user_recipes[user_id]
@@ -239,6 +245,9 @@ def eval_users_suggestions(suggestions, user_id, all_user_recipes):
 #Finally - eval all our suggestions to see if they were correct
    
 results = pd.Series(index = suggestions.index)
+#Some bullshit to get around lists as elements in pandas
+results.iloc[0] = [[False,False]]
+results.iloc[0] = []
 #Have to do this to get around apply treating lists as special cases
 for u_id in results.index:
     results.loc[u_id] = eval_users_suggestions(suggestions[u_id], str(u_id), all_recipes)

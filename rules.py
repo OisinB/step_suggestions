@@ -54,9 +54,10 @@ def convert_ckpd_to_datetime(time_string):
 def total_diff(dt_column):
     return max(dt_column) - min(dt_column)
 
-def diffs(dt_column):
+def diffs(dt_column, resolution):
     sort = sorted(dt_column.values)
     diffs = pd.np.diff(sort)
+    diffs = pd.np.divide(diffs, pd.np.timedelta64(1, resolution))
     return diffs
     
 #Hashes
@@ -80,8 +81,87 @@ def max_min_avg_median_diffs(diffs_dictionary):
     flatten_list = [item for sublist in diffs_dictionary.values() for item in sublist]
     return pd.Series([max(flatten_list), min(flatten_list), pd.np.mean(flatten_list), pd.np.median(flatten_list)])
 
-#SP exploring
+#### Support Algo ####
+
+#Support for duplicate photo removal
     
+def dup_removal_by_hash(db, db_type, dup_allow_dist, hash_type):
+    if db_type == 'user':
+        hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/moderated_photos/by_user/'
+                               + str(db.user_id.values[0]) + '/', hash_type)
+    elif db_type == 'recipe':
+        hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/step_photos2/by_recipe/'
+                               + str(db.recipe_id.values[0]) + '/', hash_type)
+    else:
+        print "Invalid db_type!"
+        return
+        
+    hdiffs = hdiffs.dropna(how='all').dropna(how='all', axis=1)
+    tmp_df = hdiffs.copy()
+    #We're going to alter the df as we go, as lets for through an index
+    index = tmp_df.index.tolist()
+    for img in index:
+        if img in tmp_df.index:
+            row = tmp_df.loc[img]
+            dups = row[row<dup_allow_dist].index
+            dups = dups.difference([img]) #Don't remove the original photo
+            tmp_df = tmp_df.drop(dups).drop(dups, axis=1)
+    hdiffs = tmp_df.copy()
+            
+    db_pruned = db.set_index('image_id').loc[hdiffs.index.values].reset_index()
+    
+    return db_pruned
+    
+def dup_removal_by_hash_timed(db, db_type, dup_allow_dist, max_time, hash_type):
+    if db_type == 'user':
+        hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/moderated_photos/by_user/'
+                               + str(db.user_id.values[0]) + '/', hash_type)
+    elif db_type == 'recipe':
+        hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/step_photos2/by_recipe/'
+                               + str(db.recipe_id.values[0]) + '/', hash_type)
+    else:
+        print "Invalid db_type!"
+        return
+        
+    hdiffs = hdiffs.dropna(how='all').dropna(how='all', axis=1)
+    tmp_df = hdiffs.copy()
+    chronolical = db.sort('taken_at').set_index('image_id').taken_at
+    #We're going to alter the df as we go, as lets for through an index
+    index = tmp_df.index.tolist()
+    for img in index:
+        if img in tmp_df.index:
+            row = tmp_df.loc[img]
+            time_diffs = chronolical - chronolical.loc[img]
+            within_window = row[(time_diffs < max_time) & (time_diffs >= pd.Timedelta(0))]
+            concurrent_dups = within_window[within_window<dup_allow_dist].index
+            concurrent_dups = concurrent_dups.difference([img]) #Don't remove the original photo
+            tmp_df = tmp_df.drop(concurrent_dups).drop(concurrent_dups, axis=1)
+            
+    hdiffs = tmp_df.copy()
+    db_pruned = db.set_index('image_id').loc[hdiffs.index.values].reset_index()
+    
+    return db_pruned
+    
+def dup_removal_by_min_time(db, min_time):
+    chronolical = db.sort('taken_at')
+    if chronolical.shape[0] < 3:
+            return pd.DataFrame() #3's our minmum recipe steps
+    
+    time_diffs = diffs(chronolical.taken_at, 'm') #Min time should be in minutes
+    while time_diffs.min() < min_time: 
+        too_close_index = pd.np.where(time_diffs <= min_time)[0]
+        chronolical = chronolical.drop(chronolical.index[(too_close_index + 1)])
+        
+        if chronolical.shape[0] < 3:
+            return pd.DataFrame() #3's our minmum recipe steps
+         
+        time_diffs = diffs(chronolical.taken_at, 'm')
+    
+    db_pruned = chronolical.copy()
+    
+    return db_pruned
+
+
 #C_M Rules
 
 def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_type):
@@ -100,7 +180,8 @@ def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_
     
     for time in chronolical.taken_at.values:
         time_diffs = chronolical.taken_at - time
-        within_window = chronolical[(time_diffs < total_time) & (time_diffs >= pd.Timedelta(0))]
+        within_window = chronolical[(time_diffs < total_time) & 
+                                    (time_diffs >= pd.Timedelta(minutes=0))]
         if within_window.shape[0] < 3:
             #Looking for at least 3 photo steps
             continue
@@ -133,7 +214,32 @@ def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_
                 suggestions.append(possibility)
     
     return suggestions
+
+#Functions to gather several rules into one combo-rule for main to call
+def three_s_c_with_min_time_diff(db, db_type, max_allow_hash_diff, total_time,
+                               min_time, hash_type):
+    db_pruned = dup_removal_by_min_time(db, min_time)
+    if db_pruned.empty:
+        return []
+    return three_similar_concurrent(db_pruned, db_type, max_allow_hash_diff, total_time, hash_type)    
+    
+def three_s_c_with_dup_removal(db, db_type, max_allow_hash_diff, total_time,
+                               dup_allow_dist, hash_type):
+    db_pruned = dup_removal_by_hash(db)
+    if db_pruned.empty:
+        return []
+    return three_similar_concurrent(db_pruned, db_type, max_allow_hash_diff, total_time, hash_type)
+
+def three_s_c_with_timed_dup_removal(db, db_type, max_allow_hash_diff, total_time,
+                               dup_allow_dist, dup_time, hash_type):
+    db_pruned = dup_removal_by_hash_timed(db)
+    if db_pruned.empty:
+        return []
+    return three_similar_concurrent(db_pruned, db_type, max_allow_hash_diff, total_time, hash_type)
             
-rule_dict = {'three_similar_concurrent' : three_similar_concurrent}
+rule_dict = {'three_similar_concurrent' : three_similar_concurrent,
+             'three_s_c_with_dup_removal' : three_s_c_with_dup_removal,
+             'three_s_c_with_timed_dup_removal' : three_s_c_with_timed_dup_removal,
+             'three_s_c_with_min_time_diff' : three_s_c_with_min_time_diff}
             
     
