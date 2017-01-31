@@ -53,12 +53,6 @@ def convert_ckpd_to_datetime(time_string):
 
 def total_diff(dt_column):
     return max(dt_column) - min(dt_column)
-
-def diffs(dt_column, resolution):
-    sort = sorted(dt_column.values)
-    diffs = pd.np.diff(sort)
-    diffs = pd.np.divide(diffs, pd.np.timedelta64(1, resolution))
-    return diffs
     
 #Hashes
 def compute_all_diffs(fldr_path, hash_name):    
@@ -83,9 +77,24 @@ def max_min_avg_median_diffs(diffs_dictionary):
 
 #### Support Algo ####
 
-#Support for duplicate photo removal
+#Duplicate photo removal
+
+def set_up_db_groups(db):
+    #Set up for grouping dups
+    dup_groups = db.image_id.tolist()
+    dup_groups = [[x] for x in dup_groups]
+
+    db['dups'] = dup_groups
+
+    return db
     
 def dup_removal_by_hash(db, db_type, dup_allow_dist, hash_type):
+    #Assumption: You've run set_up_db_gropus previously
+    #All this bullshit is to get around lists as items in pandas   
+    dup_groups = db.dups.tolist()
+    image_index = [x[0] for x in dup_groups]
+    
+    #Load in the hash_differences
     if db_type == 'user':
         hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/moderated_photos/by_user/'
                                + str(db.user_id.values[0]) + '/', hash_type)
@@ -94,25 +103,36 @@ def dup_removal_by_hash(db, db_type, dup_allow_dist, hash_type):
                                + str(db.recipe_id.values[0]) + '/', hash_type)
     else:
         print "Invalid db_type!"
-        return
-        
+        return    
     hdiffs = hdiffs.dropna(how='all').dropna(how='all', axis=1)
     tmp_df = hdiffs.copy()
+    #db might be pruned by previous rule, so we select out the subset
+    tmp_df = tmp_df.loc[db.image_id, db.image_id] 
     #We're going to alter the df as we go, as lets for through an index
     index = tmp_df.index.tolist()
     for img in index:
         if img in tmp_df.index:
             row = tmp_df.loc[img]
-            dups = row[row<dup_allow_dist].index
-            dups = dups.difference([img]) #Don't remove the original photo
-            tmp_df = tmp_df.drop(dups).drop(dups, axis=1)
+            found_dups = row[row<dup_allow_dist].index
+            found_dups = found_dups.difference([img]) #Don't remove the original photo
+            #Add dups to the dup_group
+            dup_groups[image_index.index(img)] = dup_groups[image_index.index(img)] + found_dups.tolist()
+            tmp_df = tmp_df.drop(found_dups).drop(found_dups, axis=1)
     hdiffs = tmp_df.copy()
-            
-    db_pruned = db.set_index('image_id').loc[hdiffs.index.values].reset_index()
+       
+    db_pruned = db.copy()
+    db_pruned = db_pruned.set_index('image_id').loc[hdiffs.index.values].reset_index()
+    dup_groups = [dup_groups[image_index.index(img_id)] for img_id in db_pruned.image_id.tolist()]   
+    db_pruned['dups'] =  dup_groups
     
     return db_pruned
-    
+
 def dup_removal_by_hash_timed(db, db_type, dup_allow_dist, max_time, hash_type):
+    #Assumption: You've run set_up_db_gropus previously
+    dup_groups = db.dups.tolist()
+    image_index = [x[0] for x in dup_groups]
+    
+    #Load in hash differences
     if db_type == 'user':
         hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/moderated_photos/by_user/'
                                + str(db.user_id.values[0]) + '/', hash_type)
@@ -125,6 +145,8 @@ def dup_removal_by_hash_timed(db, db_type, dup_allow_dist, max_time, hash_type):
         
     hdiffs = hdiffs.dropna(how='all').dropna(how='all', axis=1)
     tmp_df = hdiffs.copy()
+    #db might be pruned by previous rule, so we select out the subset
+    tmp_df = tmp_df.loc[db.image_id, db.image_id] 
     chronolical = db.sort('taken_at').set_index('image_id').taken_at
     #We're going to alter the df as we go, as lets for through an index
     index = tmp_df.index.tolist()
@@ -134,37 +156,110 @@ def dup_removal_by_hash_timed(db, db_type, dup_allow_dist, max_time, hash_type):
             time_diffs = chronolical - chronolical.loc[img]
             within_window = row[(time_diffs < max_time) & (time_diffs >= pd.Timedelta(0))]
             concurrent_dups = within_window[within_window<dup_allow_dist].index
-            concurrent_dups = concurrent_dups.difference([img]) #Don't remove the original photo
+            concurrent_dups = concurrent_dups.difference([img]) #Don't remove the original photo            
+            #Add dups to dup_group
+            relevant_dup_groups = [dup_groups[image_index.index(i)] for i in concurrent_dups]
+            if relevant_dup_groups:
+                relevant_dup_groups = reduce(lambda x,y: x+y, relevant_dup_groups)
+                dup_groups[image_index.index(img)] = dup_groups[image_index.index(img)] + relevant_dup_groups
             tmp_df = tmp_df.drop(concurrent_dups).drop(concurrent_dups, axis=1)
             
     hdiffs = tmp_df.copy()
     db_pruned = db.set_index('image_id').loc[hdiffs.index.values].reset_index()
+    dup_groups = [dup_groups[image_index.index(img_id)] for img_id in db_pruned.image_id.tolist()]
+    db_pruned['dups'] =  dup_groups
+    
     
     return db_pruned
     
 def dup_removal_by_min_time(db, min_time):
+    #Assumption: You've run set_up_db_gropus previously
+#    dup_groups = db.dups.tolist()
+#    image_index = [x[0] for x in dup_groups]
+    
     chronolical = db.sort('taken_at')
     if chronolical.shape[0] < 3:
             return pd.DataFrame() #3's our minmum recipe steps
     
-    time_diffs = diffs(chronolical.taken_at, 'm') #Min time should be in minutes
+    time_diffs = chronolical.taken_at.diff()
     while time_diffs.min() < min_time: 
-        too_close_index = pd.np.where(time_diffs <= min_time)[0]
-        chronolical = chronolical.drop(chronolical.index[(too_close_index + 1)])
+        #Add dups to the dup_group
+        for idx in reversed(range(chronolical.shape[0])):
+            if time_diffs.iloc[idx] < min_time:
+                chronolical.loc[:,'dups'].iloc[idx-1] = chronolical.iloc[idx-1]['dups'] + chronolical.iloc[idx]['dups']
+        #Drop photos taken too close in time
+        chronolical = chronolical.drop(chronolical.index[time_diffs < min_time])
         
         if chronolical.shape[0] < 3:
             return pd.DataFrame() #3's our minmum recipe steps
          
-        time_diffs = diffs(chronolical.taken_at, 'm')
+        time_diffs = chronolical.taken_at.diff()
     
     db_pruned = chronolical.copy()
+#    dup_groups = [dup_groups[image_index.index(img_id)] for img_id in db_pruned.image_id.tolist()]
+#    db_pruned['dups'] =  dup_groups
     
     return db_pruned
 
+#Convertion betweeb duplicate groups and the top photo handling
+def suggestions_with_dup_groups_to_singles(suggestions):
+    singles = []
+    for suggestion in suggestions:
+        singles.append([x[0] for x in suggestion])
+    return singles
+    
+def singles_back_to_dup_groups(singles, user_suggestions):
+    flat_list, single_index = [], []
+    for suggestion in user_suggestions:
+        for group in suggestion:
+            flat_list.append(group)
+            single_index.append(group[0])
+    
+    for i, single in enumerate(singles):
+        for j, img_id in enumerate(single):
+            singles[i][j] = flat_list[single_index.index(img_id)]
 
-#C_M Rules
+    return singles
+    
+def suggestions_with_dup_groups_to_flat(user_suggestions):
+    flat_list = []
+    for suggestion in user_suggestions:
+        flat_suggestion = []
+        for group in suggestion:
+            flat_suggestion += group
+        flat_list.append(flat_suggestion)
+
+    return flat_list
+
+#Merge similar suggestions
+def merge_similar_suggestions(user_suggestions, allowed_overlap):
+    singles = suggestions_with_dup_groups_to_singles(user_suggestions)
+    
+    sets = [set(suggestion) for suggestion in singles if suggestion]
+    merged = 1
+    while merged:
+        merged = 0
+        results = []
+        while sets:
+            common, rest = sets[0], sets[1:]
+            sets = []
+            for x in rest:
+                if len(x.intersection(common)) < allowed_overlap:
+                    sets.append(x)
+                else:
+                    merged = 1
+                    common |= x
+            results.append(common)
+        sets = results
+    singles = [list(s) for s in sets if s]
+    suggestions = singles_back_to_dup_groups(singles, user_suggestions)
+    return suggestions
+    
+#### Suggestion Rules ####
 
 def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_type):
+    if db.empty:
+        return []
     chronolical = db.sort('taken_at')
     if db_type == 'user':
         hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/moderated_photos/by_user/'
@@ -212,6 +307,12 @@ def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_
             #Check if this possibility is a subset of any previous suggestion
             if sum([set(possibility) <= set(s) for s in suggestions]) == 0:
                 suggestions.append(possibility)
+                
+    #Convert to dup_groups
+    db = db.set_index('image_id')
+    for suggestion in suggestions:
+        for i, image_id in enumerate(suggestion):
+            suggestion[i] = db.loc[image_id, 'dups']
     
     return suggestions
 
@@ -236,10 +337,27 @@ def three_s_c_with_timed_dup_removal(db, db_type, max_allow_hash_diff, total_tim
     if db_pruned.empty:
         return []
     return three_similar_concurrent(db_pruned, db_type, max_allow_hash_diff, total_time, hash_type)
+    
+def general_rule_applier(db, pre_processing, main_rule, post_processing, **kwargs):
+    #Apply pre-processing
+    if 'pre_args' in kwargs.keys():
+        for f, args in zip(pre_processing, kwargs['pre_args']):
+            db = f(db, *args)
+            if db.empty:
+                return []
+    #Apply main
+    suggestions = main_rule(db, *kwargs['main_args'])
+    #Apply post-processing
+    if 'post_args' in kwargs.keys():
+        for f, args in zip(post_processing, kwargs['post_args']):
+            suggestions = f(suggestions, *args)
+    
+    #Convert any dup groups to a flat_list for each evalualation
+    suggestions = suggestions_with_dup_groups_to_flat(suggestions)
+    return suggestions
             
 rule_dict = {'three_similar_concurrent' : three_similar_concurrent,
              'three_s_c_with_dup_removal' : three_s_c_with_dup_removal,
              'three_s_c_with_timed_dup_removal' : three_s_c_with_timed_dup_removal,
              'three_s_c_with_min_time_diff' : three_s_c_with_min_time_diff}
-            
     

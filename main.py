@@ -16,14 +16,24 @@ import rules
 ###Parameters#### Final version will parse from terminal
 step_photos_path = '/Users/oisin-brogan/Downloads/step_photos2/'
 c_m_photos_path = '/Users/oisin-brogan/Downloads/moderated_photos/'
-suggestions_fldr_name = 'suggestions_9/'
+suggestions_fldr_name = 'suggestions_15/'
 
 exif_tag = 'datetime'
 
-hashs = ['puzzle', 'phash', 'whash']
+hashs = ['puzzle', 'phash', 'dhash', 'whash']
 
-rule_to_apply = 'three_s_c_with_min_time_diff'
-rule_args = ('user', 20, pd.Timedelta(hours = 2.5), 7/6., 'whash')
+#rule_to_apply = 'three_s_c_with_min_time_diff'
+#rule_args = ('user', 20, pd.Timedelta(hours = 2.5), 7/6., 'whash')
+pre_processing_rules = [rules.set_up_db_groups,
+                        rules.dup_removal_by_min_time,
+                        rules.dup_removal_by_hash_timed]
+pre_processing_args = [(), (pd.Timedelta(seconds = 70),),
+                       ('user', 25, pd.Timedelta(hours = 2.5), 'phash')]
+main_rule = rules.three_similar_concurrent
+main_rule_args = ('user', 35, pd.Timedelta(hours = 2.5), 'whash')
+post_processing_rules = [rules.merge_similar_suggestions]
+post_processing_args = [(2,)]
+rules_to_apply = (pre_processing_rules, main_rule, post_processing_rules)
 
 ####Prepare data####
 #Load in step photos data
@@ -106,10 +116,13 @@ for user_id in cm_users:
             
 ####Apply Rule#####
 #Load the asked for rule
-rule = rules.rule_dict[rule_to_apply]
+#rule = rules.rule_dict[rule_to_apply]
 #Apply rule with parameters
 c_m_by_user = c_m_photos_db.groupby('user_id')
-suggestions = c_m_by_user.apply(rule, *rule_args)
+suggestions = c_m_by_user.apply(rules.general_rule_applier, *rules_to_apply,
+                        pre_args = pre_processing_args,
+                        main_args = main_rule_args,
+                        post_args = post_processing_args)
 
 ####Performance metrics####
 #Store suggestions
