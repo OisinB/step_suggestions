@@ -160,9 +160,12 @@ def window_of_images():
         
         imgTK = ImageTk.PhotoImage(img)
         resized.append(imgTK)
+        
+        image_id = fi.split('/')[-1]
+        text = times[c] + '\n' + image_id
     
         #The Label widget is a standard Tkinter widget used to display a text or image on the screen.
-        panel = tk.Label(frame, image = resized[c], text = times[c], compound = tk.TOP)
+        panel = tk.Label(frame, image = resized[c], text = text, compound = tk.TOP)
         
         #The grid geometry manager packs widgets in rows or columns.
         panel.grid(row=c/4, column=c%4, padx = 10, pady = 10)
