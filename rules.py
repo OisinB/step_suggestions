@@ -13,7 +13,8 @@ import pandas as pd, datetime as dt
 import sys
 sys.path.append('/Users/oisin-brogan/Code/similar_images')
 from process_results import load_dictionary
-import pypuzzle
+#import pypuzzle
+from functools import reduce
 
 #Common data preperation steps/metrics
 #EXIF datetime
@@ -31,7 +32,7 @@ def convert_exif_to_datetime(exif_time_string):
                                               "%Y:%m:%d %H:%M:%S")
         return time_taken
     except ValueError:
-        print 'Failed on {}'.format(exif_time_string)
+        print('Failed on {}'.format(exif_time_string))
         return pd.np.NAN    
     
 def convert_ckpd_to_datetime(time_string):
@@ -48,7 +49,7 @@ def convert_ckpd_to_datetime(time_string):
                                               "%Y-%m-%dT%H:%M:%S")
         return time_taken
     except ValueError:
-        print 'Failed on {}'.format(time_string)
+        print('Failed on {}'.format(time_string))
         return pd.np.NAN    
 
 def total_diff(dt_column):
@@ -60,7 +61,7 @@ def compute_all_diffs(fldr_path, hash_name):
         puzzle = pypuzzle.Puzzle()
 
     hash_dictionary = load_dictionary(fldr_path + '%s.txt' % hash_name)
-    diffs = pd.DataFrame(index = hash_dictionary.keys(), columns =hash_dictionary.keys())
+    diffs = pd.DataFrame()
     for key in hash_dictionary.keys():
         for k in hash_dictionary.keys():
             if hash_name == 'puzzle':
@@ -102,7 +103,7 @@ def dup_removal_by_hash(db, db_type, dup_allow_dist, hash_type):
         hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/step_photos2/by_recipe/'
                                + str(db.recipe_id.values[0]) + '/', hash_type)
     else:
-        print "Invalid db_type!"
+        print("Invalid db_type!")
         return    
     hdiffs = hdiffs.dropna(how='all').dropna(how='all', axis=1)
     tmp_df = hdiffs.copy()
@@ -140,7 +141,7 @@ def dup_removal_by_hash_timed(db, db_type, dup_allow_dist, max_time, hash_type):
         hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/step_photos2/by_recipe/'
                                + str(db.recipe_id.values[0]) + '/', hash_type)
     else:
-        print "Invalid db_type!"
+        print("Invalid db_type!")
         return
         
     hdiffs = hdiffs.dropna(how='all').dropna(how='all', axis=1)
@@ -224,9 +225,7 @@ def singles_back_to_dup_groups(singles, user_suggestions):
 def suggestions_with_dup_groups_to_flat(user_suggestions):
     flat_list = []
     for suggestion in user_suggestions:
-        flat_suggestion = []
-        for group in suggestion:
-            flat_suggestion += group
+        flat_suggestion = reduce(lambda x,y: x+y, suggestion)
         flat_list.append(flat_suggestion)
 
     return flat_list
@@ -268,7 +267,7 @@ def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_
         hdiffs = compute_all_diffs('/Users/oisin-brogan/Downloads/step_photos2/by_recipe/'
                                + str(db.recipe_id.values[0]) + '/', hash_type)
     else:
-        print "Invalid db_type!"
+        print("Invalid db_type!")
         return
         
     suggestions = []
@@ -304,10 +303,14 @@ def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_
             max_hdiff = relevent_hdiffs.max().max() 
         if relevent_hdiffs.shape[0] >= 3:
             possibility = relevent_hdiffs.columns.tolist()
-            #Check if this possibility is a subset of any previous suggestion
-            if sum([set(possibility) <= set(s) for s in suggestions]) == 0:
-                suggestions.append(possibility)
-                
+            final_time = chronolical[chronolical.image_id == possibility[-1]].taken_at.values[0]
+            suggestion_time = final_time - time
+            #Check suggestion spans a minimum time
+            if suggestion_time/pd.Timedelta(minutes=1) > 0:
+                #Check if this possibility is a subset of any previous suggestion
+                if sum([set(possibility) <= set(s) for s in suggestions]) == 0:
+                    suggestions.append(possibility)
+
     #Convert to dup_groups
     db = db.set_index('image_id')
     for suggestion in suggestions:
@@ -316,27 +319,6 @@ def three_similar_concurrent(db, db_type, max_allow_hash_diff, total_time, hash_
     
     return suggestions
 
-#Functions to gather several rules into one combo-rule for main to call
-def three_s_c_with_min_time_diff(db, db_type, max_allow_hash_diff, total_time,
-                               min_time, hash_type):
-    db_pruned = dup_removal_by_min_time(db, min_time)
-    if db_pruned.empty:
-        return []
-    return three_similar_concurrent(db_pruned, db_type, max_allow_hash_diff, total_time, hash_type)    
-    
-def three_s_c_with_dup_removal(db, db_type, max_allow_hash_diff, total_time,
-                               dup_allow_dist, hash_type):
-    db_pruned = dup_removal_by_hash(db)
-    if db_pruned.empty:
-        return []
-    return three_similar_concurrent(db_pruned, db_type, max_allow_hash_diff, total_time, hash_type)
-
-def three_s_c_with_timed_dup_removal(db, db_type, max_allow_hash_diff, total_time,
-                               dup_allow_dist, dup_time, hash_type):
-    db_pruned = dup_removal_by_hash_timed(db)
-    if db_pruned.empty:
-        return []
-    return three_similar_concurrent(db_pruned, db_type, max_allow_hash_diff, total_time, hash_type)
     
 def general_rule_applier(db, pre_processing, main_rule, post_processing, **kwargs):
     #Apply pre-processing
@@ -353,11 +335,83 @@ def general_rule_applier(db, pre_processing, main_rule, post_processing, **kwarg
             suggestions = f(suggestions, *args)
     
     #Convert any dup groups to a flat_list for each evalualation
-    suggestions = suggestions_with_dup_groups_to_flat(suggestions)
+    #suggestions = suggestions_with_dup_groups_to_flat(suggestions)
     return suggestions
             
-rule_dict = {'three_similar_concurrent' : three_similar_concurrent,
-             'three_s_c_with_dup_removal' : three_s_c_with_dup_removal,
-             'three_s_c_with_timed_dup_removal' : three_s_c_with_timed_dup_removal,
-             'three_s_c_with_min_time_diff' : three_s_c_with_min_time_diff}
+#### How do we decide we made a 'correct' suggestion? ####
+# - all photos are subset of 1 recipe
+# - X photos not in the recipe (X probably has to equal 1) (keep track of this)
+# - Must be a certain % of recipe? (% ~= 75) <- interesting to see how this changes rating
+
+def is_suggestion_recipe(suggestion, user_recipes, max_extra = 1, min_percentage = .75):
+    """suggestion is a list of image ids making a suggestion given by the rules
+    user_recipes is a list of lists of image ids, detailing all the recipes
+    manually identitified in the user's photos"""
+    #Bools to show if we ever meet the condidtions individually, but not in 
+    #the same recipe
+    best_extra_photos = False
+    best_suff_cover = False
     
+    flat_suggestion = reduce(lambda x,y: x+y, suggestion)
+    singles = [x[0] for x in suggestion]
+    
+    for recipe in user_recipes:
+        no_extra_photos = False
+        suff_cover = False
+    
+        sf_matches = sum([i in recipe for i in flat_suggestion])
+        ep_matches = sum([i in recipe for i in singles])
+        extra_photos = len(suggestion) - ep_matches
+        ex_ph_per = float(ep_matches) / len(suggestion)
+        percentage = float(sf_matches) / len(recipe)
+        if extra_photos <= max_extra:# or ex_ph_per < .1:
+            no_extra_photos = True
+            best_extra_photos = True
+        if percentage >= min_percentage:
+            suff_cover = True
+            best_suff_cover = True
+        if no_extra_photos and suff_cover:
+            #We matched to a labelled recipe - no need to check the others
+            break
+    
+    return [best_extra_photos, best_suff_cover]
+
+def eval_users_suggestions(suggestions, user_id, all_user_recipes):
+    user_recipes = all_user_recipes[user_id]
+    if not user_recipes:
+        #No recipes => all suggestions are false
+        results = [[False, False]]*len(suggestions)
+        return results
+    results = []
+    for suggestion in suggestions:
+        results.append(is_suggestion_recipe(suggestion, user_recipes))
+        
+    return results
+
+def best_cover(suggestion, user_recipes):
+    """suggestion is a list of image ids making a suggestion given by the rules
+    user_recipes is a list of lists of image ids, detailing all the recipes
+    manually identitified in the user's photos"""    
+    flat_suggestion = reduce(lambda x,y: x+y, suggestion)
+    
+    best_cover = 0
+    
+    for recipe in user_recipes:
+        sf_matches = sum([i in recipe for i in flat_suggestion])
+        percentage = float(sf_matches) / len(recipe)
+        if percentage > best_cover:
+            best_cover = percentage
+        
+    return best_cover
+
+def eval_users_cover(suggestions, user_id, all_user_recipes, max_extra = 1, min_percentage = .75):
+    user_recipes = all_user_recipes[user_id]
+    if not user_recipes:
+        #No recipes => all suggestions are false
+        results = [0]*len(suggestions)
+        return results
+    results = []
+    for suggestion in suggestions:
+        results.append(best_cover(suggestion, user_recipes))
+        
+    return results

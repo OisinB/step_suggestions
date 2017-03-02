@@ -38,10 +38,10 @@ def write_label(is_recipe):
     global folders
     with open(fldr + '/label.txt', 'w') as f:
         if is_recipe:
-            print "Labelling recipe"
+            print("Labelling recipe")
             f.write('recipe\n')
         else:
-            print "Labelling as non-recipe"
+            print("Labelling as non-recipe")
             f.write('not_recipe\n')
     #Update to next folder
     try:
@@ -61,16 +61,16 @@ def keyboard_write_label(event):
     #Don't open/modify the label.txt unless you press a relevant key
         with open(fldr + '/label.txt', 'w') as f:
             if key_press=='a':
-                print "Labelling recipe"
+                print("Labelling recipe")
                 f.write('recipe\n')
             elif key_press=='s':
-                print "Labelling as non-recipe"
+                print("Labelling as non-recipe")
                 f.write('not_recipe\n')
     elif key_press == ' ':
         pass #Space moves to next folder without updating label.txt
     else:
         #Pressed some other key
-        print "You pressed " + key_press
+        print("You pressed " + key_press)
         return
         #Don't update folder
     #Update to next folder
@@ -101,7 +101,7 @@ def load_images_from_txt_file(fldr):
         with open(fldr + '/image_list.txt', 'r') as f:
             images = [i[:-1] for i in f.readlines()]
     else:
-        print "Missing image list file in {}".format(fldr)
+        print("Missing image list file in {}".format(fldr))
     
     image_paths = [FLAGS.photo_bank + '/' + fi for fi in images]
         
@@ -262,4 +262,4 @@ if folders:
     #print folders
     window = window_of_images()
 else:
-    print "Empty folder list - are you trying to overwrite?"
+    print("Empty folder list - are you trying to overwrite?")

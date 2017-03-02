@@ -5,32 +5,32 @@ Created on Wed Dec 14 11:08:32 2016
 
 @author: oisin-brogan
 """
-import pandas as pd, datetime as dt
+import pandas as pd
 import os, sys, shutil
 sys.path.append('/Users/oisin-brogan/Code/similar_images')
 from generate_hashes import generate_hashes
 from process_results import load_dictionary
 from read_exif import read_exif
 import rules
+from functools import reduce
 
 ###Parameters#### Final version will parse from terminal
 step_photos_path = '/Users/oisin-brogan/Downloads/step_photos2/'
 c_m_photos_path = '/Users/oisin-brogan/Downloads/moderated_photos/'
-suggestions_fldr_name = 'suggestions_15/'
+suggestions_fldr_name = 'step_suggestions_0/'
 
 exif_tag = 'datetime'
 
 hashs = ['puzzle', 'phash', 'dhash', 'whash']
 
-#rule_to_apply = 'three_s_c_with_min_time_diff'
-#rule_args = ('user', 20, pd.Timedelta(hours = 2.5), 7/6., 'whash')
 pre_processing_rules = [rules.set_up_db_groups,
                         rules.dup_removal_by_min_time,
                         rules.dup_removal_by_hash_timed]
-pre_processing_args = [(), (pd.Timedelta(seconds = 70),),
-                       ('user', 25, pd.Timedelta(hours = 2.5), 'phash')]
+pre_processing_args = [(),
+                       (pd.Timedelta(seconds = 70),),
+                       ('user', 25, pd.Timedelta(minutes = 200), 'phash')]
 main_rule = rules.three_similar_concurrent
-main_rule_args = ('user', 35, pd.Timedelta(hours = 2.5), 'whash')
+main_rule_args = ('user', 40, pd.Timedelta(minutes = 200), 'whash')
 post_processing_rules = [rules.merge_similar_suggestions]
 post_processing_args = [(2,)]
 rules_to_apply = (pre_processing_rules, main_rule, post_processing_rules)
@@ -69,7 +69,7 @@ def add_taken_at(db, txt_path):
 
 step_photos_db = add_taken_at(step_photos_db, step_photos_path + 'exif_data.txt')
 
-#Convert time strings to  datetimes
+#Convert time strings to datetimes
 step_photos_db.taken_at = step_photos_db.taken_at.map(rules.convert_exif_to_datetime)
 c_m_photos_db.taken_at = c_m_photos_db.taken_at.map(rules.convert_ckpd_to_datetime)
 
@@ -79,7 +79,7 @@ sp_recipes = set(step_photos_db.recipe_id)
 for recipe_id in sp_recipes:
     recipe_fldr = step_photos_path + 'by_recipe/' + str(recipe_id)
     if not os.path.exists(recipe_fldr):
-        print "Moving to recipe folder {}".format(recipe_id)
+        print("Moving to recipe folder {}".format(recipe_id))
         os.makedirs(recipe_fldr)
         relevant_photos = step_photos_db[step_photos_db.recipe_id == recipe_id]['image_id'].values
         for image_id in relevant_photos:
@@ -92,7 +92,7 @@ cm_users = set(c_m_photos_db.user_id)
 for user_id in cm_users:
     usr_fldr = c_m_photos_path + 'by_user/' + str(user_id)
     if not os.path.exists(usr_fldr):
-        print "Moving to user folder {}".format(user_id)
+        print("Moving to user folder {}".format(user_id))
         os.makedirs(usr_fldr)
         relevant_photos = c_m_photos_db[c_m_photos_db.user_id == user_id]['image_id'].values
         for image_id in relevant_photos:
@@ -141,9 +141,10 @@ def create_photo_list(list_of_photos, user_id, counter):
             f.write(image + '.jpg\n')
 
 #Store the suggestions in seperate folders
-for user_id, lst in zip(suggestions.index, suggestions.values):
-    for i, ls in enumerate(lst):
-        create_photo_list(ls, user_id, i)
+for user_id, values in zip(suggestions.index, suggestions.values):
+    for i, suggestion in enumerate(values):
+        flat_suggestion = reduce(lambda x,y: x+y, suggestion)
+        create_photo_list(flat_suggestion, user_id, i)
         
 #Create timeline of suggestions
 def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
@@ -166,7 +167,7 @@ def suggestions_timeline(all_suggestion_folder, cm_db, granularity='D'):
                 with open(suggestion_fldr + '/image_list.txt', 'r') as f:
                     images = [i[:-5] for i in f.readlines()]
             else:
-                print "Missing image list file in {}".format(suggestion_fldr)
+                print("Missing image list file in {}".format(suggestion_fldr))
                 continue
             #Take the time of the last photo as the suggestion time for
             times = df.loc[images].taken_at
@@ -209,53 +210,9 @@ for user_id in cm_users:
     all_recipes[usr_fldr.split('/')[-2]] = recipes
 
 total_recipes = sum([len(v) for v in all_recipes.values()])
-                
-#How do we decide we made a 'correct' suggestion?
-#correct conditions
-# - all photos are subset of 1 recipe
-# - X photos not in the recipe (X probably has to equal 1) (keep track of this)
-# - Must be a certain % of recipe? (% ~= 75) <- interesting to see how this changes rating
 
-def is_suggestion_recipe(suggestion, user_recipes, max_extra = 1, min_percentage = .75):
-    """suggestion is a list of image ids making a suggestion by the logic
-    user_recipes is a list of lists of image ids, detailing all the recipes
-    identitified in the user's photos"""
-    #Bools to show if we ever meet the condidtions individually, but not in 
-    #the same recipe
-    best_extra_photos = False
-    best_suff_cover = False
-    for recipe in user_recipes:
-        no_extra_photos = False
-        suff_cover = False
-    
-        matches = sum([i in recipe for i in suggestion])
-        extra_photos = len(suggestion) - matches
-        percentage = float(matches) / len(recipe)
-        if extra_photos <= max_extra:
-            no_extra_photos = True
-            best_extra_photos = True
-        if percentage > min_percentage:
-            suff_cover = True
-            best_suff_cover = True
-        if no_extra_photos and suff_cover:
-            #We matched to a labelled recipe - no need to check the others
-            break
-    
-    return [best_extra_photos, best_suff_cover]
 
-def eval_users_suggestions(suggestions, user_id, all_user_recipes):
-    user_recipes = all_user_recipes[user_id]
-    if not user_recipes:
-        #No recipes => all suggestions are false
-        results = [[False, False]]*len(suggestions)
-        return results
-    results = []
-    for suggestion in suggestions:
-        results.append(is_suggestion_recipe(suggestion, user_recipes))
-        
-    return results
-
-#Finally - eval all our suggestions to see if they were correct
+#Eval all our suggestions to see if they were correct
    
 results = pd.Series(index = suggestions.index)
 #Some bullshit to get around lists as elements in pandas
@@ -263,7 +220,7 @@ results.iloc[0] = [[False,False]]
 results.iloc[0] = []
 #Have to do this to get around apply treating lists as special cases
 for u_id in results.index:
-    results.loc[u_id] = eval_users_suggestions(suggestions[u_id], str(u_id), all_recipes)
+    results.loc[u_id] = rules.eval_users_suggestions(suggestions[u_id], str(u_id), all_recipes)
 recipe_finds = results.map(lambda x: [li[0] and li[1] for li in x])
 extra_photos = results.map(lambda x: [li[0] for li in x])
 suff_cover = results.map(lambda x: [li[1] for li in x])

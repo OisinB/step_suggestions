@@ -15,7 +15,7 @@ def read_exif(look_for, image_path, results_file):
             tags = exifread.process_file(f)
         except:
             import traceback
-            print "{} failed to read exif".format(imagefile)
+            print("{} failed to read exif".format(imagefile))
             traceback.print_exc()
             results = ""
             continue
@@ -25,7 +25,7 @@ def read_exif(look_for, image_path, results_file):
         try:
             write_to_file(results_file, results)
         except:
-            print "Write fail. {0}{1}".format(image_path, imagefile)
+            print("Write fail. {0}{1}".format(image_path, imagefile))
         results = ""
 
 def write_to_file(filename, results_string):
