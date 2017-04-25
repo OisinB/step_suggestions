@@ -17,7 +17,7 @@ from functools import reduce
 ###Parameters#### Final version will parse from terminal
 step_photos_path = '/Users/oisin-brogan/Downloads/step_photos2/'
 c_m_photos_path = '/Users/oisin-brogan/Downloads/moderated_photos/'
-suggestions_fldr_name = 'step_suggestions_0/'
+suggestions_fldr_name = 'suggestions_/'
 
 exif_tag = 'datetime'
 
@@ -28,9 +28,9 @@ pre_processing_rules = [rules.set_up_db_groups,
                         rules.dup_removal_by_hash_timed]
 pre_processing_args = [(),
                        (pd.Timedelta(seconds = 70),),
-                       ('user', 25, pd.Timedelta(minutes = 200), 'phash')]
+                       ('user', 25, pd.Timedelta(minutes = 30), 'phash')]
 main_rule = rules.three_similar_concurrent
-main_rule_args = ('user', 40, pd.Timedelta(minutes = 200), 'whash')
+main_rule_args = ('user', 40, pd.Timedelta(minutes = 150), 'whash')
 post_processing_rules = [rules.merge_similar_suggestions]
 post_processing_args = [(2,)]
 rules_to_apply = (pre_processing_rules, main_rule, post_processing_rules)
